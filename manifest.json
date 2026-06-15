@@ -1,0 +1,17 @@
+{
+  "name": "W杯2026 全試合スケジュール",
+  "short_name": "W杯2026",
+  "description": "FIFAワールドカップ2026 グループステージ＋決勝トーナメント 全104試合スケジュール（日本時間）",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#04101f",
+  "theme_color": "#0a1a3a",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
