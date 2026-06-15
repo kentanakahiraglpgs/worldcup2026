@@ -163,6 +163,10 @@
   .team .fl { font-size: 19px; line-height: 1; }
   .team .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .vs { font-size: 10px; color: var(--sub); margin: 1px 0 1px 26px; }
+  .team .sc { margin-left: auto; padding-left: 8px; font-weight: 900; font-size: 17px; font-variant-numeric: tabular-nums; color: var(--txt); }
+  .team.win .nm { color: var(--gold-text); }
+  .team.win .sc { color: var(--gold-text); }
+  .upd { font-size: 11px; color: var(--sub); text-align: right; margin: 10px 2px 0; min-height: 14px; }
   .m-bc { flex: 0 0 auto; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
   .bc { font-size: 10px; font-weight: 800; color: #fff; padding: 3px 7px; border-radius: 6px; white-space: nowrap; letter-spacing: .2px; }
   .bc.nhk { background: var(--nhk); }
@@ -330,6 +334,7 @@
 
   <!-- 組み合わせ -->
   <section id="tab-groups" style="display:none">
+    <div id="updated" class="upd"></div>
     <div id="groups"></div>
     <div class="foot">
       順位は試合終了後に自動反映されます（現在は全チーム0）<br>
@@ -525,7 +530,21 @@ const GROUPS = {
   L:["イングランド","クロアチア","ガーナ","パナマ"],
 };
 // 結果（スコア確定後にここへ "6/15": [2,1] のように追記すれば順位表へ自動反映）
-const RESULTS = {}; // key: a+"|"+b+"|"+d  value:[goalsA, goalsB]
+// 試合結果（results.json から自動取得して反映）
+let RESULTS = {};     // グループ: key = a+"|"+b+"|"+d  → [goalsA, goalsB]
+let KO_RESULTS = {};  // 決勝T: key = 試合番号(no) → [goalsA, goalsB]
+let LAST_UPDATED = "";
+function scoreFor(m) {
+  if (m.stage === "ko") return KO_RESULTS[m.no] || null;
+  return RESULTS[m.a + "|" + m.b + "|" + m.d] || null;
+}
+function teamRow(name, flag, score, isWin) {
+  return `<div class="team${isWin?" win":""}">`
+    + (flag ? `<span class="fl">${flag}</span>` : "")
+    + `<span class="nm">${name}</span>`
+    + (score != null ? `<span class="sc">${score}</span>` : "")
+    + `</div>`;
+}
 
 // ===== 状態 =====
 let filterBC = "all", query = "";
@@ -640,23 +659,19 @@ function renderSchedule() {
         ${st==="live"?'<div class="live-tag">LIVE</div>':""}
         ${st==="done"?'<div class="done-tag">終了</div>':""}</div>`;
 
-      let teamsBlock, rightBlock;
-      if (m.stage === "ko") {
-        teamsBlock = `<div class="m-teams">
-          <div class="team"><span class="nm">${m.a}</span></div>
-          <div class="vs" style="margin-left:0">vs</div>
-          <div class="team"><span class="nm">${m.b}</span></div></div>`;
-        rightBlock = `<div class="m-meta">
+      const sc = scoreFor(m);
+      const winA = sc && sc[0] > sc[1], winB = sc && sc[1] > sc[0];
+      const isKo = m.stage === "ko";
+      const teamsBlock = `<div class="m-teams">
+          ${teamRow(m.a, isKo?null:(FLAG[m.a]||"🏳️"), sc?sc[0]:null, winA)}
+          <div class="vs"${isKo?' style="margin-left:0"':''}>vs</div>
+          ${teamRow(m.b, isKo?null:(FLAG[m.b]||"🏳️"), sc?sc[1]:null, winB)}</div>`;
+      const rightBlock = isKo
+        ? `<div class="m-meta">
           <span class="round-tag" style="--rcolor:${rc}">${ROUND[m.round].label}</span>
           <span class="venue">📍${m.venue}</span>
-          <span class="mno">第${m.no}試合</span></div>`;
-      } else {
-        teamsBlock = `<div class="m-teams">
-          <div class="team"><span class="fl">${FLAG[m.a]||"🏳️"}</span><span class="nm">${m.a}</span></div>
-          <div class="vs">vs</div>
-          <div class="team"><span class="fl">${FLAG[m.b]||"🏳️"}</span><span class="nm">${m.b}</span></div></div>`;
-        rightBlock = `<div class="m-bc">${m.bc.map(b=>`<span class="bc ${BC[b].cls}">${BC[b].label}</span>`).join("")}</div>`;
-      }
+          <span class="mno">第${m.no}試合</span></div>`
+        : `<div class="m-bc">${m.bc.map(b=>`<span class="bc ${BC[b].cls}">${BC[b].label}</span>`).join("")}</div>`;
       html += `<div class="${cls.join(" ")}" style="--rcolor:${rc}">${timeBlock}${teamsBlock}${rightBlock}</div>`;
     });
     html += `</div>`;
@@ -885,8 +900,34 @@ document.getElementById("icsJp").onclick   = () => downloadICS(ALL.filter(m=>m.i
 document.getElementById("icsAll").onclick  = () => downloadICS(ALL, "W杯2026 全試合", "wc2026-all.ics");
 document.getElementById("icsView").onclick = () => downloadICS(ALL.filter(matchPass), "W杯2026 (表示中)", "wc2026-selected.ics");
 
+// ===== 結果の自動取得（results.json）=====
+function fmtUpdated(iso) {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    const p = n => String(n).padStart(2,"0");
+    return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  } catch(e) { return iso; }
+}
+async function loadResults() {
+  try {
+    const res = await fetch("./results.json?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    RESULTS = data.scores || {};
+    KO_RESULTS = {};
+    if (data.ko) Object.keys(data.ko).forEach(k => KO_RESULTS[Number(k)] = data.ko[k]);
+    LAST_UPDATED = data.updated || "";
+    const u = document.getElementById("updated");
+    if (u) u.textContent = LAST_UPDATED ? `最終更新：${fmtUpdated(LAST_UPDATED)}` : "";
+    renderSchedule(); renderGroups(); renderBracket();
+  } catch (e) { /* オフライン等は無視 */ }
+}
+
 renderSchedule(); renderGroups(); renderBracket(); renderRules();
 tickCountdown(); setInterval(tickCountdown, 1000); setInterval(renderSchedule, 30000);
+loadResults(); setInterval(loadResults, 60000); // 60秒ごとにスコアを自動取得
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadResults(); });
 
 // ===== PWA: service worker 登録 =====
 if ("serviceWorker" in navigator) {

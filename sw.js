@@ -1,9 +1,10 @@
 // W杯2026 service worker — offline cache
-const CACHE = "wc2026-v1";
+const CACHE = "wc2026-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
+  "./results.json",
   "./icon-192.png",
   "./icon-512.png",
   "./apple-touch-icon.png",
@@ -25,6 +26,17 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
+  // results.json は常に最新を優先（ネットワーク優先・失敗時のみキャッシュ）
+  if (req.url.includes("results.json")) {
+    e.respondWith(
+      fetch(req).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put("./results.json", copy));
+        return res;
+      }).catch(() => caches.match("./results.json"))
+    );
+    return;
+  }
   const isDoc = req.mode === "navigate" || req.destination === "document";
   if (isDoc) {
     e.respondWith(
