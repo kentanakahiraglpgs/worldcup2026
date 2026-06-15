@@ -122,13 +122,23 @@ def main():
             sa, sb = as_, hs
         scores["%s|%s|%s" % (home, away, date)] = [sa, sb]
 
-    # 既存 ko(手入力分) を保持
-    ko = {}
+    # 既存ファイル読み込み（ko手入力分の保持＋差分判定用）
+    old = {}
     if os.path.exists(OUT):
         try:
-            ko = json.load(open(OUT, encoding="utf-8")).get("ko", {}) or {}
+            old = json.load(open(OUT, encoding="utf-8"))
         except Exception:
-            ko = {}
+            old = {}
+    ko = old.get("ko", {}) or {}
+
+    print(f"fixtures={len(fixtures)} events={len(events)} matched_scores={len(scores)}")
+    if unresolved:
+        print("[未対応のチーム名] " + ", ".join(sorted(set(unresolved))), file=sys.stderr)
+
+    # スコア(とko)に変化が無ければ書き込まない＝無駄なpushを防ぐ
+    if not ("--dry" in sys.argv) and old.get("scores") == scores and old.get("ko", {}) == ko:
+        print("no score change")
+        return
 
     result = {
         "updated": datetime.now(JST).isoformat(timespec="minutes"),
@@ -136,10 +146,6 @@ def main():
         "scores": scores,
         "ko": ko,
     }
-
-    print(f"fixtures={len(fixtures)} events={len(events)} matched_scores={len(scores)}")
-    if unresolved:
-        print("[未対応のチーム名] " + ", ".join(sorted(set(unresolved))), file=sys.stderr)
 
     if dry:
         print(json.dumps(result, ensure_ascii=False, indent=2))
